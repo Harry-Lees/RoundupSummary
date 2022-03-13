@@ -79,19 +79,22 @@ def get_issues(max_retries: int = 5) -> list[Issue]:
         response.extend(data)
     return response
 
-def week_beginning() -> date:
+def date_range() -> tuple[date, date]:
     """calculates the date of the beginning of the current week"""
-    today = datetime.now().date() - timedelta(days=28)
-    return today # T%H:%M:%SZ
+    # for testing, this function has been set to just return the date
+    # where there are known test issues.
+    # today = datetime.now().date() - timedelta(days=7)
+    # return today
+    return date(2022, 2, 14), date(2022, 2, 20)
 
 def is_open(issue: Issue) -> bool:
     """return whether the given Issue is open"""
     return issue["state"] == "open"
 
-def opened_after(issue: Issue, start: date) -> bool:
-    """return whether the given issue was opened after the
-    given start date."""
-    return datetime\
+def opened_between(issue: Issue, start: date, stop: date) -> bool:
+    """return whether the given issue was opened between the given
+    dates."""
+    return stop > datetime\
         .strptime(issue["created_at"], "%Y-%m-%dT%H:%M:%SZ")\
         .date() > start
 
@@ -126,8 +129,8 @@ def create_issue_table(issues: list[Issue], limit: int | None = None):
     return '\n'.join(table)
 
 if __name__ == '__main__':
-    start = week_beginning()
-    is_new = partial(opened_after, start=start)
+    start, stop = date_range()
+    is_new = partial(opened_between, start=start, stop=stop)
     if DEBUG:
         with open("test.json") as file:
             issues = json.load(file)
@@ -145,7 +148,7 @@ if __name__ == '__main__':
         html = file.read()
 
     msg = html.format(
-        timespan=f"{start} - {date.today()}",
+        timespan=f"{start} - {stop}",
         tracker_name="Python tracker",
         tracker_url="https://github.com/python/cpython/issues",
         num_opened_issues=len(open_issues),
