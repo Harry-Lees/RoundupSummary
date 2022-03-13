@@ -8,11 +8,13 @@ from typing import TypedDict
 import requests
 
 TEMPLATE_FILE = "template.html"
+DEBUG = True
 
 class User(TypedDict):
     id: str
     site_admin: bool
     login: str
+    type: str
 
 class Label(TypedDict):
     id: int
@@ -20,6 +22,11 @@ class Label(TypedDict):
     name: str
 
 class Issue(TypedDict):
+    """All of the fields that are used in this script, this class doesn't hold a
+    full list of all the fields that may be contained within the response, however,
+    most of the other ones are URLs that won't be used here. A full list of the returned
+    parameters can be found here:
+    https://docs.github.com/en/rest/reference/issues#list-issues-assigned-to-the-authenticated-user--code-samples"""
     url: str
     id: int
     number: int
@@ -38,8 +45,8 @@ class Issue(TypedDict):
     body: str
 
 def get_issues(max_retries: int = 5) -> list[Issue]:
-    """return a list of issues from the Github API that were updated since
-    the given parameter"""
+    """return a full list of issues from the Github API,
+    try up to max_retries times before raising ValueError"""
 
     ENDPOINT = "https://api.github.com/repos/python/issues-test-demo-20220218/issues"
 
@@ -52,7 +59,7 @@ def get_issues(max_retries: int = 5) -> list[Issue]:
     }
     headers = {"accept": "application/vnd.github.v3+json"}
 
-    response: list[dict[Any, Any]] = []
+    response: list[Issue] = []
     while True:
         for _ in range(max_retries):
             resp = requests.get(
@@ -73,15 +80,17 @@ def get_issues(max_retries: int = 5) -> list[Issue]:
     return response
 
 def week_beginning() -> date:
-    """calculates the datetime YYYY-MM-DDTHH:MM:SSZ
-    of the beginning of the current week"""
+    """calculates the date of the beginning of the current week"""
     today = datetime.now().date() - timedelta(days=28)
     return today # T%H:%M:%SZ
 
 def is_open(issue: Issue) -> bool:
+    """return whether the given Issue is open"""
     return issue["state"] == "open"
 
 def opened_after(issue: Issue, start: date) -> bool:
+    """return whether the given issue was opened after the
+    given start date."""
     return datetime\
         .strptime(issue["created_at"], "%Y-%m-%dT%H:%M:%SZ")\
         .date() > start
@@ -119,8 +128,11 @@ def create_issue_table(issues: list[Issue], limit: int | None = None):
 if __name__ == '__main__':
     start = week_beginning()
     is_new = partial(opened_after, start=start)
-    with open("test.json") as file:
-        issues = json.load(file)
+    if DEBUG:
+        with open("test.json") as file:
+            issues = json.load(file)
+    else:
+        issues = get_issues()
 
     open_issues = list(filter(is_open, issues))
     closed_issues = list(filter(lambda x : not is_open(x), issues))
