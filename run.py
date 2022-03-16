@@ -4,6 +4,8 @@ import json
 from datetime import date, datetime, timedelta
 from functools import partial
 from typing import TypedDict
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 import requests
 
@@ -127,6 +129,24 @@ def create_issue_table(issues: list[Issue], limit: int | None = None):
             url="https://github.com/python/issues-test-demo-20220218/issues/{}".format(issue["number"]),
             opener=username))
     return '\n'.join(table)
+
+def send_report(recipient: str, report: str, html: str | None = None) -> None:
+    TRACKER_NAME = "bugs.python.org"
+    email = "{} <status@bugs.python.org>".format(TRACKER_NAME)
+    headers = {
+        "Subject": f"Summary of {TRACKER_NAME} Issues",
+        "To": recipient,
+        "From": email,
+        "Reply-To": email,
+        "MIME-Version": "1.0",
+        "X-Roundup-Name": TRACKER_NAME
+    }
+    if html is None:
+        msg = MIMEText(report)
+    else:
+        msg = MIMEMultipart("alternative")
+    for name, content in headers.items():
+        msg[name] = content
 
 if __name__ == '__main__':
     start, stop = date_range()
