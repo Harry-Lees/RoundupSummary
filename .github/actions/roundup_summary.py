@@ -1,16 +1,19 @@
 #!/usr/bin/python
 
+import base64
 import json
+import os
 from datetime import date, datetime, timedelta
-from functools import partial
-from typing import TypedDict
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-
-import requests
+from functools import partial
+from time import sleep
+from typing import TypedDict
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 TEMPLATE_FILE = "template.html"
-DEBUG = True
+DEBUG = False
 
 class User(TypedDict):
     id: str
@@ -46,7 +49,20 @@ class Issue(TypedDict):
     closed_at: str | None
     body: str
 
-def get_issues(max_retries: int = 5) -> list[Issue]:
+def get(url: str, params: dict[str, str | int], auth: bytes) -> list[Issue]:
+    args = urlencode(params)
+    request = Request(f"{url}?{args}")
+    request.add_header("Authorization", "Basic %s" % auth)
+    # recommended header for requesting issues, more information can be found
+    # here: https://docs.github.com/en/rest/reference/issues#list-issues-assigned-to-the-authenticated-user
+    request.add_header("accept", "application/vnd.github.v3+json")
+
+    with urlopen(request) as response:
+        if response.status == 200:
+            return json.loads(response.read())
+        raise IOError(f"API request failed with response {response}")
+
+def get_issues(auth: bytes) -> list[Issue]:
     """return a full list of issues from the Github API,
     try up to max_retries times before raising ValueError"""
 
@@ -59,27 +75,14 @@ def get_issues(max_retries: int = 5) -> list[Issue]:
         "direction": "desc", "page": 1, "state": "all",
         "filter": "all"
     }
-    headers = {"accept": "application/vnd.github.v3+json"}
 
-    response: list[Issue] = []
+    responses: list[Issue] = []
     while True:
-        for _ in range(max_retries):
-            resp = requests.get(
-                ENDPOINT,
-                params=params,
-                headers=headers)
-
-            if resp.status_code == 200:
-                break
-        else:
-            raise ValueError("API is not responding, try again later.")
-
-        data = resp.json()
-        if not data:
-            break
+        data = get(ENDPOINT, params, auth)
+        responses.extend(data)
+        if len(data) < 100:
+            return responses
         params["page"] += 1
-        response.extend(data)
-    return response
 
 def date_range() -> tuple[date, date]:
     """calculates the date of the beginning of the current week"""
@@ -151,11 +154,17 @@ def send_report(recipient: str, report: str, html: str | None = None) -> None:
 if __name__ == '__main__':
     start, stop = date_range()
     is_new = partial(opened_between, start=start, stop=stop)
+
+    auth_bytes = "{}:{}".format(
+        os.environ.get("USERNAME"),
+        os.environ.get("TOKEN")).encode()
+    auth = base64.b64encode(auth_bytes)
+
     if DEBUG:
         with open("test.json") as file:
             issues = json.load(file)
     else:
-        issues = get_issues()
+        issues = get_issues(auth)
 
     open_issues = list(filter(is_open, issues))
     closed_issues = list(filter(lambda x : not is_open(x), issues))
