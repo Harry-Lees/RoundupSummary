@@ -1,116 +1,73 @@
 #!/usr/bin/python
 
-import base64
 import json
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from functools import partial
-from time import sleep
-from typing import TypedDict
+from typing import Iterable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 TEMPLATE_FILE = "template.html"
+ENDPOINT = "https://github.com/python/cpython/issues"
+SEARCH_ENDPOINT = "https://api.github.com/search/issues"
+GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
 DEBUG = False
 
-class User(TypedDict):
-    id: str
-    site_admin: bool
-    login: str
-    type: str
 
-class Label(TypedDict):
-    id: int
-    url: str
-    name: str
-
-class Issue(TypedDict):
-    """All of the fields that are used in this script, this class doesn't hold a
-    full list of all the fields that may be contained within the response, however,
-    most of the other ones are URLs that won't be used here. A full list of the returned
-    parameters can be found here:
-    https://docs.github.com/en/rest/reference/issues#list-issues-assigned-to-the-authenticated-user--code-samples"""
-    url: str
-    id: int
-    number: int
-    title: str
-    user: User
-    labels: list[Label]
-    state: str
-    locked: bool
-    assignee: str | None
-    assignees: list[str | None]
-    milestone: str | None
-    comments: int
-    created_at: str
-    updated_at: str
-    closed_at: str | None
-    body: str
-
-def get(url: str, params: dict[str, str | int], auth: bytes) -> list[Issue]:
-    args = urlencode(params)
-    request = Request(f"{url}?{args}")
-    request.add_header("Authorization", "Basic %s" % auth)
-    # recommended header for requesting issues, more information can be found
-    # here: https://docs.github.com/en/rest/reference/issues#list-issues-assigned-to-the-authenticated-user
+def get_issue_counts(token: str) -> tuple[int, int]:
+    """use the GraphQL API to get the number of opened and closed issues
+    without having to query every single issue and count them."""
+    data = {
+        "query": """
+        {
+            repository(owner: "python", name: "cpython") {
+                open: issues(states: OPEN) { totalCount }
+                closed: issues(states: CLOSED) { totalCount }
+            }
+        }
+        """
+    }
+    args = json.dumps(data).encode()
+    request = Request(GRAPHQL_ENDPOINT, data=args)
+    request.add_header("Authorization", f"Bearer {token}")
     request.add_header("accept", "application/vnd.github.v3+json")
 
     with urlopen(request) as response:
-        if response.status == 200:
-            return json.loads(response.read())
-        raise IOError(f"API request failed with response {response}")
+        response = json.loads(response.read())
+        repo = response["data"]["repository"]
+        open = repo["open"]["totalCount"]
+        closed = repo["closed"]["totalCount"]
+        return open, closed
 
-def get_issues(auth: bytes) -> list[Issue]:
-    """return a full list of issues from the Github API,
-    try up to max_retries times before raising ValueError"""
+def get(url: str, params: dict[str, str | int], headers: dict[str, str]):
+    """helper function to abstract away some urllib boilerplate"""
+    args = urlencode(params)
+    request = Request(f"{url}?{args}")
+    for key, value in headers.items():
+        request.add_header(key, value)
+    with urlopen(request) as response:
+        return json.loads(response.read())
 
-    ENDPOINT = "https://api.github.com/repos/python/issues-test-demo-20220218/issues"
+def get_issues(filters: Iterable[str], token: str):
+    """return a list of results from the Github search API"""
+    params = {"q": " ".join(filters), "per_page": 100, "page": 0}
+    headers = {"Accept": "application/vnd.github.v3+json", "Authorization": f"Bearer {token}"}
 
-    # a list of API parameters can be found here
-    # https://docs.github.com/en/rest/reference/issues
-    params = {
-        "per_page": 100, "sort": "created",
-        "direction": "desc", "page": 1, "state": "all",
-        "filter": "all"
-    }
-
-    responses: list[Issue] = []
+    responses = []
     while True:
-        data = get(ENDPOINT, params, auth)
-        responses.extend(data)
-        if len(data) < 100:
+        print("fetching page {}".format(params["page"]))
+        data = get(SEARCH_ENDPOINT, params, headers)
+        responses.extend(data["items"])
+        if len(data["items"]) < 100:
             return responses
         params["page"] += 1
 
-def date_range() -> tuple[date, date]:
-    """calculates the date of the beginning of the current week"""
-    # for testing, this function has been set to just return the date
-    # where there are known test issues.
-    # today = datetime.now().date() - timedelta(days=7)
-    # return today
-    return date(2022, 2, 14), date(2022, 2, 20)
+def get_most_discussed(issues, top: int = 10):
+    pass
 
-def is_open(issue: Issue) -> bool:
-    """return whether the given Issue is open"""
-    return issue["state"] == "open"
-
-def opened_between(issue: Issue, start: date, stop: date) -> bool:
-    """return whether the given issue was opened between the given
-    dates."""
-    return stop > datetime\
-        .strptime(issue["created_at"], "%Y-%m-%dT%H:%M:%SZ")\
-        .date() > start
-
-def most_discussed(issues: list[Issue], top: int = 10) -> list[Issue]:
-    """return a list of n open issues sorted by the number of
-    comments"""
-    return sorted(
-        filter(lambda issue: issue["state"] == "open", issues),
-        key=lambda issue: issue["comments"])[:top]
-
-def create_issue_table(issues: list[Issue], limit: int | None = None):
+def create_issue_table(issues, limit: int | None = None):
     """format issues into a table which can be displayed on the email.
     Note, this table is not actually an HTML table, rather just n number
     of <p> tags."""
@@ -129,7 +86,7 @@ def create_issue_table(issues: list[Issue], limit: int | None = None):
         table.append(TEMPLATE.format(
             id=issue["number"],
             title=issue["title"],
-            url="https://github.com/python/issues-test-demo-20220218/issues/{}".format(issue["number"]),
+            url="{}/{}".format(ENDPOINT, issue["number"]),
             opener=username))
     return '\n'.join(table)
 
@@ -152,43 +109,31 @@ def send_report(recipient: str, report: str, html: str | None = None) -> None:
         msg[name] = content
 
 if __name__ == '__main__':
-    start, stop = date_range()
-    is_new = partial(opened_between, start=start, stop=stop)
+    date_from = date.today() - timedelta(days=7)
+    token = os.environ.get("TOKEN")
+    if token is None:
+        raise ValueError("token is None, please set TOKEN env variable")
 
-    auth_bytes = "{}:{}".format(
-        os.environ.get("USERNAME"),
-        os.environ.get("TOKEN")).encode()
-    auth = base64.b64encode(auth_bytes)
-
-    if DEBUG:
-        with open("test.json") as file:
-            issues = json.load(file)
-    else:
-        issues = get_issues(auth)
-
-    open_issues = list(filter(is_open, issues))
-    closed_issues = list(filter(lambda x : not is_open(x), issues))
-
-    new_open_issues = list(filter(is_new, open_issues))
-    new_closed_issues = list(filter(is_new, closed_issues))
-    new_issues = new_open_issues + new_closed_issues
+    num_open, num_closed = get_issue_counts(token)
+    closed = get_issues(("repo:python/cpython", f"closed:>{date_from}", "type:issue"), token)
+    opened = get_issues(("repo:python/cpython", "state:open", f"created:>{date_from}", "type:issue"), token)
 
     with open(TEMPLATE_FILE) as file:
         html = file.read()
 
     msg = html.format(
-        timespan=f"{start} - {stop}",
+        timespan=f"{date_from} - {date.today()}",
         tracker_name="Python tracker",
-        tracker_url="https://github.com/python/cpython/issues",
-        num_opened_issues=len(open_issues),
-        num_closed_issues=len(closed_issues),
-        num_new_opened_issues=len(new_open_issues),
-        num_new_closed_issues=len(new_closed_issues),
-        total=len(issues),
-        total_new=len(new_issues),
+        tracker_url=ENDPOINT,
+        num_opened_issues=num_open,
+        num_closed_issues=num_closed,
+        num_new_opened_issues=f"{len(opened):+}",
+        num_new_closed_issues=f"{len(closed):+}",
+        total=num_open + num_closed,
+        total_new=f"{len(opened)-len(closed):+}",
         patches=0,
-        opened_issues=create_issue_table(new_open_issues),
-        closed_issues=create_issue_table(new_closed_issues),
+        opened_issues=create_issue_table(opened),
+        closed_issues=create_issue_table(closed),
     )
     with open("out.html", "w") as file:
         file.write(msg)
