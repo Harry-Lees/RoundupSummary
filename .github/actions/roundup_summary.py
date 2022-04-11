@@ -106,13 +106,18 @@ if __name__ == '__main__':
     if mailgun_token is None:
         raise ValueError("mailgun token is None, please set mailgun_api_key env variable")
 
+    print("retrieving issue counts")
     num_open, num_closed = get_issue_counts(github_token)
+    print("retrieving closed issues")
     closed = get_issues(("repo:python/cpython", f"closed:>{date_from}", "type:issue"), github_token)
+    print("retrieving opened issues")
     opened = get_issues(("repo:python/cpython", "state:open", f"created:>{date_from}", "type:issue"), github_token)
+    print("retrieving most discussed issues")
     most_discussed = get_issues(
         ("repo:python/cpython", "state:open", "type:issue", "sort:comments"),
         github_token,
         False)
+    print("retrieving issues with no comments")
     no_comments = get_issues(
         ("repo:python/cpython", "state:open", "type:issue", "comments:0", "sort:updated"),
         github_token,
@@ -137,6 +142,7 @@ if __name__ == '__main__':
         most_discussed=create_issue_table(most_discussed, limit=10),
         no_comments=create_issue_table(no_comments, limit=15)
     )
+    print(msg)
     if DEBUG:
         with open("out.html", "w") as file:
             file.write(msg)
