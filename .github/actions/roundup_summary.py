@@ -4,7 +4,6 @@ import json
 import os
 from datetime import date, timedelta
 from typing import Iterable
-from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 DEBUG = True
@@ -29,10 +28,10 @@ def get_issue_counts(token: str) -> tuple[int, int]:
         """
     }
     args = json.dumps(data).encode()
-    request = Request(GRAPHQL_ENDPOINT, data=args)
-    request.add_header("Authorization", f"Bearer {token}")
-    request.add_header("accept", "application/vnd.github.v3+json")
-
+    request = Request(GRAPHQL_ENDPOINT, data=args, headers={
+        "Authorization": f"Bearer {token}",
+        "accept": "application/vnd.github.v3+json"
+    })
     with urlopen(request) as response:
         response = json.loads(response.read())
         repo = response["data"]["repository"]
@@ -40,30 +39,32 @@ def get_issue_counts(token: str) -> tuple[int, int]:
         closed = repo["closed"]["totalCount"]
         return open, closed
 
-def get(url: str, params: dict[str, str | int], headers: dict[str, str]):
-    """helper function to abstract away some urllib boilerplate"""
-    args = urlencode(params)
-    request = Request(f"{url}?{args}")
-    for key, value in headers.items():
-        request.add_header(key, value)
-    with urlopen(request) as response:
-        return json.loads(response.read())
-
 def get_issues(filters: Iterable[str], token: str, all_: bool = True):
     """return a list of results from the Github search API"""
-    params = {"q": " ".join(filters), "per_page": 100, "page": 0}
-    headers = {"Accept": "application/vnd.github.v3+json", "Authorization": f"Bearer {token}"}
-
-    responses = []
-    while True:
-        print("fetching {}?{}".format(SEARCH_ENDPOINT, urlencode(params)))
-        data = get(SEARCH_ENDPOINT, params, headers)
-        responses.extend(data["items"])
-        if all_ is False:
-            return responses
-        if len(data["items"]) < 100:
-            return responses
-        params["page"] += 1
+    # TODO: if there are more than 100 issues, we need to include pagination
+    # this doesn't occur very often, but it should still be included just incase.
+    search = " ".join(filters)
+    data = {"query": """
+        {{
+            search(query:"{}" type: ISSUE first: 100)
+            {{
+                pageInfo {{ hasNextPage endCursor startCursor }}
+                nodes {{
+                    ... on Issue {{
+                        title number author {{ login }} closedAt createdAt
+                    }}
+                }}
+            }}
+        }}
+    """.format(search)}
+    args = json.dumps(data).encode()
+    request = Request(GRAPHQL_ENDPOINT, data=args, headers={
+        "Authorization": f"Bearer {token}",
+        "accept": "application/vnd.github.v3+json"
+    })
+    with urlopen(request) as response:
+        response = json.loads(response.read())
+        return response["data"]["search"]["nodes"]
 
 def create_issue_table(issues, limit: int | None = None):
     """format issues into a table which can be displayed on the email.
@@ -76,16 +77,11 @@ def create_issue_table(issues, limit: int | None = None):
 
     table: list[str] = []
     for issue in issues[:limit]:
-        if issue["user"]["type"] == "Mannequin":
-            username = "Mannequin"
-        else:
-            username = issue["user"]["login"]
-
         table.append(TEMPLATE.format(
             id=issue["number"],
             title=issue["title"],
             url="{}/{}".format(ISSUE_ENDPOINT, issue["number"]),
-            opener=username))
+            opener=issue["author"]["login"]))
     return '\n'.join(table)
 
 def send_report(report: str, token: str) -> None:
@@ -128,17 +124,17 @@ if __name__ == '__main__':
         timespan=f"{date_from} - {date.today()}",
         tracker_name="Python tracker",
         tracker_url=ISSUE_ENDPOINT,
-        num_opened_issues=num_open,
-        num_closed_issues=num_closed,
+        num_opened_issues=f"{num_open:,}",
+        num_closed_issues=f"{num_closed:,}",
         num_new_opened_issues=f"{len(opened):+}",
         num_new_closed_issues=f"{len(closed):+}",
-        total=num_open + num_closed,
+        total=f"{num_open + num_closed:,}",
         total_new=f"{len(opened)-len(closed):+}",
         patches=0,
         opened_issues=create_issue_table(opened),
         closed_issues=create_issue_table(closed),
-        most_discussed=create_issue_table(most_discussed[:10]),
-        no_comments=create_issue_table(no_comments[:15])
+        most_discussed=create_issue_table(most_discussed, limit=10),
+        no_comments=create_issue_table(no_comments, limit=15)
     )
     if DEBUG:
         with open("out.html", "w") as file:
