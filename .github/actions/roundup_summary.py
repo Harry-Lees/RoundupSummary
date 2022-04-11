@@ -3,17 +3,16 @@
 import json
 import os
 from datetime import date, timedelta
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from typing import Iterable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+DEBUG = True
 TEMPLATE_FILE = "template.html"
-ENDPOINT = "https://github.com/python/cpython/issues"
+ISSUE_ENDPOINT = "https://github.com/python/cpython/issues"
 SEARCH_ENDPOINT = "https://api.github.com/search/issues"
 GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
-DEBUG = False
+MAILGUN_ENDPOINT = "https://api.mailgun.net/v3/mg.python.org"
 
 
 def get_issue_counts(token: str) -> tuple[int, int]:
@@ -50,22 +49,21 @@ def get(url: str, params: dict[str, str | int], headers: dict[str, str]):
     with urlopen(request) as response:
         return json.loads(response.read())
 
-def get_issues(filters: Iterable[str], token: str):
+def get_issues(filters: Iterable[str], token: str, all_: bool = True):
     """return a list of results from the Github search API"""
     params = {"q": " ".join(filters), "per_page": 100, "page": 0}
     headers = {"Accept": "application/vnd.github.v3+json", "Authorization": f"Bearer {token}"}
 
     responses = []
     while True:
-        print("fetching page {}".format(params["page"]))
+        print("fetching {}?{}".format(SEARCH_ENDPOINT, urlencode(params)))
         data = get(SEARCH_ENDPOINT, params, headers)
         responses.extend(data["items"])
+        if all_ is False:
+            return responses
         if len(data["items"]) < 100:
             return responses
         params["page"] += 1
-
-def get_most_discussed(issues, top: int = 10):
-    pass
 
 def create_issue_table(issues, limit: int | None = None):
     """format issues into a table which can be displayed on the email.
@@ -86,37 +84,42 @@ def create_issue_table(issues, limit: int | None = None):
         table.append(TEMPLATE.format(
             id=issue["number"],
             title=issue["title"],
-            url="{}/{}".format(ENDPOINT, issue["number"]),
+            url="{}/{}".format(ISSUE_ENDPOINT, issue["number"]),
             opener=username))
     return '\n'.join(table)
 
-def send_report(recipient: str, report: str, html: str | None = None) -> None:
-    TRACKER_NAME = "bugs.python.org"
-    email = "{} <status@bugs.python.org>".format(TRACKER_NAME)
-    headers = {
-        "Subject": f"Summary of {TRACKER_NAME} Issues",
-        "To": recipient,
-        "From": email,
-        "Reply-To": email,
-        "MIME-Version": "1.0",
-        "X-Roundup-Name": TRACKER_NAME
+def send_report(report: str, token: str) -> None:
+    """send the report using the Mailgun API"""
+    # TODO: implement this function, mailgun have a REST API
+    # which can be called to send the emails.
+    # https://documentation.mailgun.com/en/latest/api-intro.html#introduction
+    params = {
+        "from": "Cpython Issues <github@mg.python.org>",
+        "to": "new-bugs-announce@python.org",
+        "subject": "Summary of Python tracker Issues",
+        "template": ""
     }
-    if html is None:
-        msg = MIMEText(report)
-    else:
-        msg = MIMEMultipart("alternative")
-    for name, content in headers.items():
-        msg[name] = content
 
 if __name__ == '__main__':
     date_from = date.today() - timedelta(days=7)
-    token = os.environ.get("TOKEN")
-    if token is None:
+    github_token = os.environ.get("TOKEN")
+    mailgun_token = os.environ.get("MAILGUN_KEY")
+    if github_token is None:
         raise ValueError("token is None, please set TOKEN env variable")
+    if mailgun_token is None:
+        raise ValueError("mailgun token is None, please set MAILGUN_KEY env variable")
 
-    num_open, num_closed = get_issue_counts(token)
-    closed = get_issues(("repo:python/cpython", f"closed:>{date_from}", "type:issue"), token)
-    opened = get_issues(("repo:python/cpython", "state:open", f"created:>{date_from}", "type:issue"), token)
+    num_open, num_closed = get_issue_counts(github_token)
+    closed = get_issues(("repo:python/cpython", f"closed:>{date_from}", "type:issue"), github_token)
+    opened = get_issues(("repo:python/cpython", "state:open", f"created:>{date_from}", "type:issue"), github_token)
+    most_discussed = get_issues(
+        ("repo:python/cpython", "state:open", "type:issue", "sort:comments"),
+        github_token,
+        False)
+    no_comments = get_issues(
+        ("repo:python/cpython", "state:open", "type:issue", "comments:0", "sort:updated"),
+        github_token,
+        False)
 
     with open(TEMPLATE_FILE) as file:
         html = file.read()
@@ -124,7 +127,7 @@ if __name__ == '__main__':
     msg = html.format(
         timespan=f"{date_from} - {date.today()}",
         tracker_name="Python tracker",
-        tracker_url=ENDPOINT,
+        tracker_url=ISSUE_ENDPOINT,
         num_opened_issues=num_open,
         num_closed_issues=num_closed,
         num_new_opened_issues=f"{len(opened):+}",
@@ -134,6 +137,11 @@ if __name__ == '__main__':
         patches=0,
         opened_issues=create_issue_table(opened),
         closed_issues=create_issue_table(closed),
+        most_discussed=create_issue_table(most_discussed[:10]),
+        no_comments=create_issue_table(no_comments[:15])
     )
-    with open("out.html", "w") as file:
-        file.write(msg)
+    if DEBUG:
+        with open("out.html", "w") as file:
+            file.write(msg)
+    else:
+        send_report(msg, mailgun_token)
