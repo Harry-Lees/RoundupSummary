@@ -5,6 +5,7 @@ import os
 from datetime import date, timedelta
 from typing import Iterable
 from urllib.request import Request, urlopen
+from pathlib import Path
 
 DEBUG = True
 TEMPLATE_FILE = "template.html"
@@ -117,7 +118,7 @@ if __name__ == '__main__':
         github_token,
         False)
 
-    with open(TEMPLATE_FILE) as file:
+    with open(Path(__file__).resolve().parent / Path(TEMPLATE_FILE)) as file:
         html = file.read()
 
     msg = html.format(
