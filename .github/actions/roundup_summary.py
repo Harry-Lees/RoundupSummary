@@ -98,12 +98,12 @@ def send_report(report: str, token: str) -> None:
 
 if __name__ == '__main__':
     date_from = date.today() - timedelta(days=7)
-    github_token = os.environ.get("TOKEN")
-    mailgun_token = os.environ.get("MAILGUN_KEY")
+    github_token = os.environ.get("github_api_token")
+    mailgun_token = os.environ.get("mailgun_api_key")
     if github_token is None:
-        raise ValueError("token is None, please set TOKEN env variable")
+        raise ValueError("token is None, please set github_api_token env variable")
     if mailgun_token is None:
-        raise ValueError("mailgun token is None, please set MAILGUN_KEY env variable")
+        raise ValueError("mailgun token is None, please set mailgun_api_key env variable")
 
     num_open, num_closed = get_issue_counts(github_token)
     closed = get_issues(("repo:python/cpython", f"closed:>{date_from}", "type:issue"), github_token)
