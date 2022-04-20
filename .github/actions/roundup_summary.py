@@ -7,8 +7,7 @@ from typing import Iterable
 from urllib.request import Request, urlopen
 from pathlib import Path
 
-DEBUG = True
-TEMPLATE_FILE = "template.html"
+
 ISSUE_ENDPOINT = "https://github.com/python/cpython/issues"
 SEARCH_ENDPOINT = "https://api.github.com/search/issues"
 GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
@@ -142,9 +141,3 @@ if __name__ == '__main__':
         most_discussed=create_issue_table(most_discussed, limit=10),
         no_comments=create_issue_table(no_comments, limit=15)
     )
-    print(msg)
-    if DEBUG:
-        with open("out.html", "w") as file:
-            file.write(msg)
-    else:
-        send_report(msg, mailgun_token)
