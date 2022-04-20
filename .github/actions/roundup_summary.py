@@ -57,11 +57,11 @@ def get_issues(filters: Iterable[str], token: str, all_: bool = True):
     })
     return response.json()["data"]["search"]["nodes"]
 
-def send_report(payload: str, token: str) -> None:
+def send_report(payload: str, token: str) -> int:
     """send the report using the Mailgun API"""
     params = {
         "from": "Cpython Issues <github@mg.python.org>",
-        "to": "python-dev@python.org",
+        "to": "harry.lees@gmail.com",
         "subject": "Summary of Python tracker Issues",
         "template": "issue-tracker-template",
         "o:tracking-clicks": "no",
@@ -71,10 +71,7 @@ def send_report(payload: str, token: str) -> None:
         MAILGUN_ENDPOINT,
         auth=("api", token),
         json=params)
-    if response.status_code == 200:
-        print("successfully email")
-    else:
-        print("failed to send email", response.status_code)
+    return response.status_code
 
 if __name__ == '__main__':
     date_from = date.today() - timedelta(days=7)
@@ -102,5 +99,10 @@ if __name__ == '__main__':
         "total_closed": total_closed,
         "week_delta": len(opened) - len(closed),
     }
-    print(json.dumps(payload))
-    # send_report(json.dumps(payload), mailgun_token)
+    status_code = send_report(json.dumps(payload), mailgun_token)
+    if status_code == 200:
+        print("successfully email")
+    else:
+        # in this case, fail the GitHub action
+        print("failed to send email", status_code)
+        exit(1)
