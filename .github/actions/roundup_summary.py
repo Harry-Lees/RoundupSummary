@@ -67,15 +67,19 @@ def send_report(payload: str, token: str) -> None:
         "o:tracking-clicks": "no",
         "h:X-Mailgun-Variables": payload,
     }
-    requests.post(
+    response = requests.post(
         MAILGUN_ENDPOINT,
         auth=("api", token),
         json=params)
+    if response.status_code == 200:
+        print("successfully email")
+    else:
+        print("failed to send email", response.status_code)
 
 if __name__ == '__main__':
     date_from = date.today() - timedelta(days=7)
-    github_token = os.environ.get("github_api_token") or ""
-    mailgun_token = os.environ.get("mailgun_api_key") or ""
+    github_token = os.environ.get("github_api_token")
+    mailgun_token = os.environ.get("mailgun_api_key")
 
     total_open, total_closed = get_issue_counts(github_token)
     closed = get_issues(("repo:python/cpython", f"closed:>{date_from}", "type:issue"), github_token)
@@ -98,4 +102,5 @@ if __name__ == '__main__':
         "total_closed": total_closed,
         "week_delta": len(opened) - len(closed),
     }
-    send_report(json.dumps(payload), mailgun_token)
+    print(json.dumps(payload))
+    # send_report(json.dumps(payload), mailgun_token)
