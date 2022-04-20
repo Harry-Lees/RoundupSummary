@@ -101,7 +101,7 @@ if __name__ == '__main__':
     }
     status_code = send_report(json.dumps(payload), mailgun_token)
     if status_code == 200:
-        print("successfully email")
+        print("successfully sent email")
     else:
         # in this case, fail the GitHub action
         print("failed to send email", status_code)
