@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: 3.10.1
       - name: install deps
-      - run: pip install requests
+        run: pip install requests
       - name: execute script
         run: |
           python -u ./.github/actions/roundup_summary.py
