@@ -66,24 +66,6 @@ def get_issues(filters: Iterable[str], token: str, all_: bool = True):
         response = json.loads(response.read())
         return response["data"]["search"]["nodes"]
 
-def create_issue_table(issues, limit: int | None = None):
-    """format issues into a table which can be displayed on the email.
-    Note, this table is not actually an HTML table, rather just n number
-    of <p> tags."""
-    TEMPLATE = '<p>#{id}: {title}<br><a href="{url}">{url}</a> opened by {opener}</p>'
-
-    if limit is None:
-        limit = len(issues)
-
-    table: list[str] = []
-    for issue in issues[:limit]:
-        table.append(TEMPLATE.format(
-            id=issue["number"],
-            title=issue["title"],
-            url="{}/{}".format(ISSUE_ENDPOINT, issue["number"]),
-            opener=issue["author"]["login"]))
-    return '\n'.join(table)
-
 def send_report(report: str, token: str) -> None:
     """send the report using the Mailgun API"""
     # TODO: implement this function, mailgun have a REST API
@@ -98,46 +80,34 @@ def send_report(report: str, token: str) -> None:
 
 if __name__ == '__main__':
     date_from = date.today() - timedelta(days=7)
-    github_token = os.environ.get("github_api_token")
-    mailgun_token = os.environ.get("mailgun_api_key")
-    if github_token is None:
-        raise ValueError("token is None, please set github_api_token env variable")
-    if mailgun_token is None:
-        raise ValueError("mailgun token is None, please set mailgun_api_key env variable")
+    github_token = os.environ.get("github_api_token") or ""
+    mailgun_token = os.environ.get("mailgun_api_key") or ""
 
-    print("retrieving issue counts")
     num_open, num_closed = get_issue_counts(github_token)
-    print("retrieving closed issues")
     closed = get_issues(("repo:python/cpython", f"closed:>{date_from}", "type:issue"), github_token)
-    print("retrieving opened issues")
     opened = get_issues(("repo:python/cpython", "state:open", f"created:>{date_from}", "type:issue"), github_token)
-    print("retrieving most discussed issues")
     most_discussed = get_issues(
         ("repo:python/cpython", "state:open", "type:issue", "sort:comments"),
         github_token,
         False)
-    print("retrieving issues with no comments")
     no_comments = get_issues(
         ("repo:python/cpython", "state:open", "type:issue", "comments:0", "sort:updated"),
         github_token,
         False)
 
-    with open(Path(__file__).resolve().parent / Path(TEMPLATE_FILE)) as file:
-        html = file.read()
-
-    msg = html.format(
-        timespan=f"{date_from} - {date.today()}",
-        tracker_name="Python tracker",
-        tracker_url=ISSUE_ENDPOINT,
-        num_opened_issues=f"{num_open:,}",
-        num_closed_issues=f"{num_closed:,}",
-        num_new_opened_issues=f"{len(opened):+}",
-        num_new_closed_issues=f"{len(closed):+}",
-        total=f"{num_open + num_closed:,}",
-        total_new=f"{len(opened)-len(closed):+}",
-        patches=0,
-        opened_issues=create_issue_table(opened),
-        closed_issues=create_issue_table(closed),
-        most_discussed=create_issue_table(most_discussed, limit=10),
-        no_comments=create_issue_table(no_comments, limit=15)
-    )
+    # msg = html.format(
+    #     timespan=f"{date_from} - {date.today()}",
+    #     tracker_name="Python tracker",
+    #     tracker_url=ISSUE_ENDPOINT,
+    #     num_opened_issues=f"{num_open:,}",
+    #     num_closed_issues=f"{num_closed:,}",
+    #     num_new_opened_issues=f"{len(opened):+}",
+    #     num_new_closed_issues=f"{len(closed):+}",
+    #     total=f"{num_open + num_closed:,}",
+    #     total_new=f"{len(opened)-len(closed):+}",
+    #     patches=0,
+    #     opened_issues=create_issue_table(opened),
+    #     closed_issues=create_issue_table(closed),
+    #     most_discussed=create_issue_table(most_discussed, limit=10),
+    #     no_comments=create_issue_table(no_comments, limit=15)
+    # )
