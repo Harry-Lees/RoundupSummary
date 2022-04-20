@@ -1,8 +1,9 @@
 name: py
 
-on:
-  push:
-    branches: [main]
+on: 
+  schedule:
+   - cron: "15 19 * * FRI"
+
 
 jobs:
   roundup-summary:
