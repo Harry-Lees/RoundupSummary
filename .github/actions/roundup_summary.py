@@ -1,9 +1,9 @@
+import json
 import os
 from datetime import date, timedelta
 from typing import Iterable
 
 import requests
-
 
 ISSUE_ENDPOINT = "https://github.com/python/cpython/issues"
 SEARCH_ENDPOINT = "https://api.github.com/search/issues"
@@ -57,24 +57,27 @@ def get_issues(filters: Iterable[str], token: str, all_: bool = True):
     })
     return response.json()["data"]["search"]["nodes"]
 
-def send_report(report: str, token: str) -> None:
+def send_report(payload: str, token: str) -> None:
     """send the report using the Mailgun API"""
-    # TODO: implement this function, mailgun have a REST API
-    # which can be called to send the emails.
-    # https://documentation.mailgun.com/en/latest/api-intro.html#introduction
     params = {
         "from": "Cpython Issues <github@mg.python.org>",
-        "to": "new-bugs-announce@python.org",
+        "to": "python-dev@python.org",
         "subject": "Summary of Python tracker Issues",
-        "template": ""
+        "template": "issue-tracker-template",
+        "o:tracking-clicks": "no",
+        "h:X-Mailgun-Variables": payload,
     }
+    requests.post(
+        MAILGUN_ENDPOINT,
+        auth=("api", token),
+        json=params)
 
 if __name__ == '__main__':
     date_from = date.today() - timedelta(days=7)
     github_token = os.environ.get("github_api_token") or ""
     mailgun_token = os.environ.get("mailgun_api_key") or ""
 
-    num_open, num_closed = get_issue_counts(github_token)
+    total_open, total_closed = get_issue_counts(github_token)
     closed = get_issues(("repo:python/cpython", f"closed:>{date_from}", "type:issue"), github_token)
     opened = get_issues(("repo:python/cpython", "state:open", f"created:>{date_from}", "type:issue"), github_token)
     most_discussed = get_issues(
@@ -86,19 +89,13 @@ if __name__ == '__main__':
         github_token,
         False)
 
-    # msg = html.format(
-    #     timespan=f"{date_from} - {date.today()}",
-    #     tracker_name="Python tracker",
-    #     tracker_url=ISSUE_ENDPOINT,
-    #     num_opened_issues=f"{num_open:,}",
-    #     num_closed_issues=f"{num_closed:,}",
-    #     num_new_opened_issues=f"{len(opened):+}",
-    #     num_new_closed_issues=f"{len(closed):+}",
-    #     total=f"{num_open + num_closed:,}",
-    #     total_new=f"{len(opened)-len(closed):+}",
-    #     patches=0,
-    #     opened_issues=create_issue_table(opened),
-    #     closed_issues=create_issue_table(closed),
-    #     most_discussed=create_issue_table(most_discussed, limit=10),
-    #     no_comments=create_issue_table(no_comments, limit=15)
-    # )
+    payload = {
+        "opened_issues": opened,
+        "closed_issues": closed,
+        "most_discussed": most_discussed[:10],
+        "no_comments": no_comments[:15],
+        "total_open": total_open,
+        "total_closed": total_closed,
+        "week_delta": len(opened) - len(closed),
+    }
+    send_report(json.dumps(payload), mailgun_token)
