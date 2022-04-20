@@ -1,11 +1,9 @@
-#!/usr/bin/python
-
 import json
 import os
 from datetime import date, timedelta
 from typing import Iterable
-from urllib.request import Request, urlopen
-from pathlib import Path
+
+import requests
 
 
 ISSUE_ENDPOINT = "https://github.com/python/cpython/issues"
