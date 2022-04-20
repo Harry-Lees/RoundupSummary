@@ -25,17 +25,14 @@ def get_issue_counts(token: str) -> tuple[int, int]:
         }
         """
     }
-    args = json.dumps(data).encode()
-    request = Request(GRAPHQL_ENDPOINT, data=args, headers={
+    response = requests.post(GRAPHQL_ENDPOINT, json=data, headers={
         "Authorization": f"Bearer {token}",
         "accept": "application/vnd.github.v3+json"
     })
-    with urlopen(request) as response:
-        response = json.loads(response.read())
-        repo = response["data"]["repository"]
-        open = repo["open"]["totalCount"]
-        closed = repo["closed"]["totalCount"]
-        return open, closed
+    repo = response.json()["data"]["repository"]
+    open = repo["open"]["totalCount"]
+    closed = repo["closed"]["totalCount"]
+    return open, closed
 
 def get_issues(filters: Iterable[str], token: str, all_: bool = True):
     """return a list of results from the Github search API"""
@@ -55,14 +52,11 @@ def get_issues(filters: Iterable[str], token: str, all_: bool = True):
             }}
         }}
     """.format(search)}
-    args = json.dumps(data).encode()
-    request = Request(GRAPHQL_ENDPOINT, data=args, headers={
+    response = requests.post(GRAPHQL_ENDPOINT, json=data, headers={
         "Authorization": f"Bearer {token}",
         "accept": "application/vnd.github.v3+json"
     })
-    with urlopen(request) as response:
-        response = json.loads(response.read())
-        return response["data"]["search"]["nodes"]
+    return response.json()["data"]["search"]["nodes"]
 
 def send_report(report: str, token: str) -> None:
     """send the report using the Mailgun API"""
